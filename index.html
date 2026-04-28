@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal Ujian CBT - Abu Hanif</title>
+    
+    <!-- Tailwind CSS untuk Styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome untuk Ikon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel untuk kompilasi JSX di browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- DATA AWAL UJIAN (Bisa diubah/dihapus via Admin) ---
+        const initialExams = [
+          {
+            id: 1,
+            mataPelajaran: "Matematika Dasar",
+            kelas: "XII IPA",
+            waktu: "90 Menit",
+            linkGForm: "https://docs.google.com/forms/d/e/1FAIpQLSfq1Wp07x3J3yQk-z-40f42-4/viewform?embedded=true" 
+          },
+          {
+            id: 2,
+            mataPelajaran: "Bahasa Indonesia",
+            kelas: "XII Semua Jurusan",
+            waktu: "120 Menit",
+            linkGForm: "https://docs.google.com/forms/d/e/1FAIpQLSfq1Wp07x3J3yQk-z-40f42-4/viewform?embedded=true"
+          }
+        ];
+
+        function App() {
+          const [namaSiswa, setNamaSiswa] = useState('');
+          const [role, setRole] = useState(null); // 'student' atau 'admin'
+          const [exams, setExams] = useState(initialExams);
+          const [ujianAktif, setUjianAktif] = useState(null);
+          const [sedangUjian, setSedangUjian] = useState(false);
+          const [customLink, setCustomLink] = useState('');
+
+          // State untuk Modal Custom
+          const [showAdminModal, setShowAdminModal] = useState(false);
+          const [adminPassword, setAdminPassword] = useState('');
+          const [adminError, setAdminError] = useState('');
+          const [showPassword, setShowPassword] = useState(false);
+          const [showEndExamModal, setShowEndExamModal] = useState(false);
+          const [examToDelete, setExamToDelete] = useState(null);
+          const [alertMsg, setAlertMsg] = useState('');
+          
+          // State Khusus Diskualifikasi
+          const [pesanDiskualifikasi, setPesanDiskualifikasi] = useState('');
+
+          const [newExam, setNewExam] = useState({
+            mataPelajaran: '',
+            kelas: '',
+            waktu: '',
+            linkGForm: ''
+          });
+
+          const appRef = useRef(null);
+
+          // --- FUNGSI DISKUALIFIKASI ---
+          const prosesDiskualifikasi = (alasan) => {
+            setSedangUjian(false);
+            setUjianAktif(null);
+            setShowEndExamModal(false);
+            setPesanDiskualifikasi(`Anda telah didiskualifikasi dari ujian! Alasan: ${alasan}`);
+
+            // Paksa keluar dari mode Fullscreen
+            const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement;
+            if (isFullscreen) {
+              if (document.exitFullscreen) {
+                document.exitFullscreen().catch(err => console.log(err));
+              } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen().catch(err => console.log(err));
+              } else if (document.msExitFullscreen) {
+                document.msExitFullscreen().catch(err => console.log(err));
+              }
+            }
+          };
+
+          // --- FITUR ANTI CHEAT (SUPER KETAT) ---
+          useEffect(() => {
+            const handleVisibilityChange = () => {
+              // Jika tab tidak aktif (pindah tab atau minimize)
+              if (document.hidden && sedangUjian) {
+                prosesDiskualifikasi("Meninggalkan halaman ujian atau membuka tab lain.");
+              }
+            };
+
+            const handleKeyDown = (e) => {
+              if (sedangUjian) {
+                // Deteksi tombol PrintScreen atau kombinasi screenshot umum (Meta/Cmd + Shift)
+                if (e.key === 'PrintScreen' || e.keyCode === 44 || (e.metaKey && e.shiftKey)) {
+                  prosesDiskualifikasi("Terdeteksi upaya mengambil tangkapan layar (Screenshot).");
+                }
+              }
+            };
+
+            const handleContextMenu = (e) => {
+              if (sedangUjian) {
+                e.preventDefault();
+                // Opsional: Bisa dikomentari jika tidak ingin klik kanan berujung diskualifikasi
+                // prosesDiskualifikasi("Terdeteksi melakukan klik kanan.");
+              }
+            };
+
+            document.addEventListener("visibilitychange", handleVisibilityChange);
+            document.addEventListener("keydown", handleKeyDown);
+            document.addEventListener("contextmenu", handleContextMenu);
+
+            return () => {
+              document.removeEventListener("visibilitychange", handleVisibilityChange);
+              document.removeEventListener("keydown", handleKeyDown);
+              document.removeEventListener("contextmenu", handleContextMenu);
+            };
+          }, [sedangUjian]);
+
+          // --- FUNGSI UJIAN ---
+          const mulaiUjian = (ujian) => {
+            let link = ujian.linkGForm;
+            if (!link) {
+              if (!customLink) {
+                setAlertMsg("Silakan masukkan link Google Form terlebih dahulu!");
+                return;
+              }
+              link = customLink;
+            }
+
+            setUjianAktif({ ...ujian, linkGForm: link });
+            setSedangUjian(true);
+            
+            if (appRef.current) {
+              if (appRef.current.requestFullscreen) {
+                appRef.current.requestFullscreen().catch(err => console.log(err));
+              } else if (appRef.current.webkitRequestFullscreen) {
+                appRef.current.webkitRequestFullscreen().catch(err => console.log(err));
+              } else if (appRef.current.msRequestFullscreen) {
+                appRef.current.msRequestFullscreen().catch(err => console.log(err));
+              }
+            }
+          };
+
+          const akhiriUjian = () => {
+            setShowEndExamModal(true);
+          };
+
+          const prosesAkhiriUjian = () => {
+            setSedangUjian(false);
+            setUjianAktif(null);
+            setShowEndExamModal(false);
+            
+            const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement;
+            if (isFullscreen) {
+              if (document.exitFullscreen) {
+                document.exitFullscreen().catch(err => console.log(err));
+              } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen().catch(err => console.log(err));
+              } else if (document.msExitFullscreen) {
+                document.msExitFullscreen().catch(err => console.log(err));
+              }
+            }
+          };
+
+          const handleLogin = (e) => {
+            e.preventDefault();
+            if (namaSiswa.trim() !== '') {
+              setRole('student');
+            }
+          };
+
+          const bukaModalAdmin = () => {
+            setAdminPassword('');
+            setAdminError('');
+            setShowPassword(false);
+            setShowAdminModal(true);
+          };
+
+          const prosesLoginAdmin = (e) => {
+            e.preventDefault();
+            if (adminPassword === "Abu Hanif") {
+              setRole('admin');
+              setNamaSiswa('Abu Hanif'); // Set nama ke Abu Hanif
+              setShowAdminModal(false);
+            } else {
+              setAdminError("Password salah!");
+            }
+          };
+
+          // --- FUNGSI ADMIN ---
+          const handleAddExam = (e) => {
+            e.preventDefault();
+            if (!newExam.mataPelajaran || !newExam.linkGForm) return;
+            
+            let processedLink = newExam.linkGForm;
+            if (processedLink.includes('/edit')) {
+              processedLink = processedLink.replace('/edit', '/viewform?embedded=true');
+            } else if (processedLink.includes('/viewform') && !processedLink.includes('embedded=true')) {
+              processedLink += (processedLink.includes('?') ? '&' : '?') + 'embedded=true';
+            }
+
+            const examToAdd = {
+              ...newExam,
+              linkGForm: processedLink,
+              id: Date.now()
+            };
+            
+            setExams([...exams, examToAdd]);
+            setNewExam({ mataPelajaran: '', kelas: '', waktu: '', linkGForm: '' });
+          };
+
+          const handleDeleteExam = (id) => {
+            setExamToDelete(id);
+          };
+
+          const prosesDeleteExam = () => {
+            setExams(exams.filter(exam => exam.id !== examToDelete));
+            setExamToDelete(null);
+          };
+
+          // --- TAMPILAN LOGIN ---
+          if (!role) {
+            return (
+              <div className="min-h-screen flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden">
+                
+                <div className="absolute inset-y-0 left-0 w-1/2 md:w-1/3 bg-[url('ujian.png')] bg-cover md:bg-contain bg-center bg-no-repeat opacity-20 md:opacity-100 pointer-events-none z-0"></div>
+                <div className="absolute inset-y-0 right-0 w-1/2 md:w-1/3 bg-[url('ujian.png')] bg-cover md:bg-contain bg-center bg-no-repeat opacity-20 md:opacity-100 pointer-events-none z-0"></div>
+
+                {alertMsg && (
+                  <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 text-center">
+                      <i className="fa-solid fa-triangle-exclamation text-orange-500 text-[32px] mx-auto mb-4"></i>
+                      <p className="text-slate-800 mb-6">{alertMsg}</p>
+                      <button onClick={() => setAlertMsg('')} className="bg-blue-600 text-white px-4 py-2 rounded-lg w-full">Tutup</button>
+                    </div>
+                  </div>
+                )}
+
+                {showAdminModal && (
+                  <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6">
+                      <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                          <i className="fa-solid fa-gear text-[20px]"></i> Login Abu Hanif
+                        </h2>
+                        <button onClick={() => setShowAdminModal(false)} className="text-slate-400 hover:text-slate-600">
+                          <i className="fa-solid fa-xmark text-[20px]"></i>
+                        </button>
+                      </div>
+                      <form onSubmit={prosesLoginAdmin}>
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Password Admin</label>
+                          <div className="relative">
+                            <input 
+                              type={showPassword ? "text" : "password"} 
+                              autoFocus
+                              value={adminPassword}
+                              onChange={(e) => setAdminPassword(e.target.value)}
+                              className="w-full px-4 py-2 pr-10 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                              placeholder="Masukkan password admin..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowPassword(!showPassword)}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none"
+                              title={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+                            >
+                              <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
+                            </button>
+                          </div>
+                          {adminError && <p className="text-red-500 text-xs mt-1">{adminError}</p>}
+                        </div>
+                        <button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2 px-4 rounded-lg">Masuk Admin</button>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-white/95 md:bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-100 relative z-10 backdrop-blur-md mb-8">
+                  <button 
+                    onClick={bukaModalAdmin}
+                    className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-full transition-all"
+                    title="Masuk sebagai Admin (Abu Hanif)"
+                  >
+                    <i className="fa-solid fa-gear text-[20px]"></i>
+                  </button>
+
+                  <div className="flex justify-center mb-6">
+                    <div className="bg-blue-600 w-16 h-16 flex items-center justify-center rounded-full text-white shadow-lg">
+                      <i className="fa-solid fa-desktop text-[32px]"></i>
+                    </div>
+                  </div>
+                  <h1 className="text-2xl font-bold text-center text-slate-800 mb-2">Portal Ujian CBT</h1>
+                  <p className="text-slate-500 text-center mb-8 text-sm">Silakan masukkan nama Anda untuk memulai sesi ujian terintegrasi Google Form.</p>
+                  
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap</label>
+                      <input 
+                        type="text" 
+                        value={namaSiswa}
+                        onChange={(e) => setNamaSiswa(e.target.value)}
+                        className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                        placeholder="Cth: Budi Santoso"
+                        required
+                      />
+                    </div>
+                    <button 
+                      type="submit" 
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg transition-colors flex items-center justify-center shadow-md"
+                      dir="rtl"
+                    >
+                      <span className="text-2xl font-bold font-serif leading-none mt-1">بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ</span>
+                    </button>
+                  </form>
+                </div>
+
+                {/* Footer Login */}
+                <div className="relative z-10 text-slate-500 text-sm font-medium">
+                  Design by Wiyanto Abu Hanif
+                </div>
+              </div>
+            );
+          }
+
+          // --- TAMPILAN ADMIN PANEL ---
+          if (role === 'admin') {
+            return (
+              <div className="min-h-screen font-sans flex flex-col relative bg-slate-50">
+                {examToDelete && (
+                  <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center">
+                      <i className="fa-solid fa-trash-can text-red-500 text-[32px] mx-auto mb-4"></i>
+                      <h2 className="text-xl font-bold text-slate-800 mb-2">Hapus Ujian?</h2>
+                      <p className="text-slate-600 mb-6">Apakah Anda yakin ingin menghapus ujian ini dari daftar?</p>
+                      <div className="flex gap-3">
+                        <button onClick={() => setExamToDelete(null)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 py-2 rounded-lg font-medium">Batal</button>
+                        <button onClick={prosesDeleteExam} className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg font-medium">Ya, Hapus</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <nav className="bg-slate-900 px-6 py-4 flex justify-between items-center sticky top-0 z-20 shadow-md">
+                  <div className="flex items-center gap-3 text-white">
+                    <i className="fa-solid fa-gear text-blue-400 text-[24px]"></i>
+                    <span className="text-xl font-bold">Admin: <span className="text-blue-400">Abu Hanif</span></span>
+                  </div>
+                  <button 
+                    onClick={() => setRole(null)}
+                    className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors text-sm font-medium"
+                  >
+                    <i className="fa-solid fa-right-from-bracket text-[18px]"></i> Keluar
+                  </button>
+                </nav>
+
+                <main className="flex-1 max-w-5xl w-full mx-auto p-6 md:p-8">
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+                    <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2 border-b pb-3">
+                      <i className="fa-solid fa-plus text-blue-600 text-[20px]"></i> Tambah Mata Pelajaran Baru
+                    </h2>
+                    <form onSubmit={handleAddExam} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Mata Pelajaran *</label>
+                        <input type="text" required value={newExam.mataPelajaran} onChange={e => setNewExam({...newExam, mataPelajaran: e.target.value})} className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="Cth: Biologi" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Kelas Target</label>
+                        <input type="text" value={newExam.kelas} onChange={e => setNewExam({...newExam, kelas: e.target.value})} className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="Cth: XI IPA 1" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Durasi / Waktu</label>
+                        <input type="text" value={newExam.waktu} onChange={e => setNewExam({...newExam, waktu: e.target.value})} className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="Cth: 90 Menit" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Link Google Form *</label>
+                        <input type="url" required value={newExam.linkGForm} onChange={e => setNewExam({...newExam, linkGForm: e.target.value})} className="w-full px-3 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="https://docs.google.com/forms/..." />
+                        <p className="text-xs text-slate-500 mt-1">Sistem otomatis menyesuaikan link agar bisa di-embed.</p>
+                      </div>
+                      <div className="md:col-span-2 pt-2">
+                        <button type="submit" className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-6 rounded-lg transition-colors flex items-center justify-center gap-2">
+                          <i className="fa-solid fa-plus text-[18px]"></i> Simpan Ujian
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <h2 className="text-xl font-bold text-slate-800 mb-4">Daftar Ujian Aktif</h2>
+                  <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-slate-200">
+                        <thead className="bg-slate-50">
+                          <tr>
+                            <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Mata Pelajaran</th>
+                            <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Kelas</th>
+                            <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Waktu</th>
+                            <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-slate-200">
+                          {exams.map((exam) => (
+                            <tr key={exam.id} className="hover:bg-slate-50">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{exam.mataPelajaran}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{exam.kelas || '-'}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{exam.waktu || '-'}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                                <button 
+                                  onClick={() => handleDeleteExam(exam.id)} 
+                                  className="text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-md inline-flex items-center gap-1 transition-colors"
+                                >
+                                  <i className="fa-solid fa-trash-can text-[16px]"></i> Hapus
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {exams.length === 0 && (
+                            <tr>
+                              <td colSpan="4" className="px-6 py-8 text-center text-sm text-slate-500">Belum ada ujian yang tersedia. Silakan tambah ujian baru di atas.</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </main>
+
+                <footer className="w-full text-center py-4 text-slate-500 text-sm mt-auto">
+                  Design by Wiyanto Abu Hanif
+                </footer>
+              </div>
+            );
+          }
+
+          // --- TAMPILAN SAAT UJIAN BERLANGSUNG ---
+          if (sedangUjian && ujianAktif) {
+            return (
+              <div ref={appRef} className="h-screen w-screen bg-white flex flex-col overflow-hidden font-sans">
+                
+                <header className="bg-slate-900 text-white p-4 flex justify-between items-center shadow-md z-10">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-blue-500 w-10 h-10 flex items-center justify-center rounded-md">
+                      <i className="fa-solid fa-book-open text-[20px]"></i>
+                    </div>
+                    <div>
+                      <h1 className="font-bold text-lg leading-tight">{ujianAktif.mataPelajaran}</h1>
+                      <p className="text-slate-400 text-xs">Peserta: {namaSiswa}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-6">
+                    {/* Status Peringatan Dihapus, karena pelanggaran langsung diskualifikasi */}
+                    <button 
+                      onClick={akhiriUjian}
+                      className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-md font-medium text-sm flex items-center gap-2 transition-colors shadow-sm"
+                    >
+                      <i className="fa-solid fa-circle-check text-[16px]"></i> Selesai Ujian
+                    </button>
+                  </div>
+                </header>
+
+                {showEndExamModal && (
+                  <div className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 text-center">
+                      <i className="fa-solid fa-circle-check text-blue-500 text-[40px] mx-auto mb-4"></i>
+                      <h2 className="text-xl font-bold text-slate-800 mb-2">Akhiri Ujian?</h2>
+                      <p className="text-slate-600 mb-6">
+                        Apakah Anda yakin ingin mengakhiri ujian? <strong>Pastikan Anda sudah menekan tombol 'Kirim' / 'Submit'</strong> pada Google Form.
+                      </p>
+                      <div className="flex gap-3">
+                        <button onClick={() => setShowEndExamModal(false)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-800 py-3 rounded-lg font-semibold transition-colors">Kembali ke Ujian</button>
+                        <button onClick={prosesAkhiriUjian} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition-colors">Ya, Akhiri</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex-1 w-full relative bg-slate-100">
+                  <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-b from-slate-200 to-transparent z-0 pointer-events-none"></div>
+                  <iframe 
+                    src={ujianAktif.linkGForm} 
+                    className="w-full h-full border-none z-10 relative"
+                    title="Google Form Ujian"
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                  >
+                    Memuat formulir...
+                  </iframe>
+                </div>
+
+              </div>
+            );
+          }
+
+          // --- TAMPILAN DASHBOARD (PILIH UJIAN) ---
+          return (
+            <div className="min-h-screen font-sans flex flex-col relative bg-slate-50">
+              
+              {/* MODAL DISKUALIFIKASI */}
+              {pesanDiskualifikasi && (
+                <div className="fixed inset-0 bg-red-900/95 z-50 flex items-center justify-center p-4 backdrop-blur-md">
+                  <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 text-center border-4 border-red-500">
+                    <div className="bg-red-100 text-red-600 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <i className="fa-solid fa-ban text-[48px]"></i>
+                    </div>
+                    <h2 className="text-3xl font-black text-slate-900 mb-2 uppercase">Diskualifikasi</h2>
+                    <p className="text-lg text-slate-700 mb-6 font-medium">{pesanDiskualifikasi}</p>
+                    <div className="bg-slate-100 rounded-lg p-4 mb-6 text-sm text-slate-600">
+                      <strong>Info:</strong> Ujian Anda telah dihentikan secara paksa oleh sistem. Jika terdapat kendala, silakan hubungi pengawas ujian.
+                    </div>
+                    <button onClick={() => setPesanDiskualifikasi('')} className="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-xl w-full font-bold text-lg transition-colors shadow-lg">
+                      Tutup dan Kembali
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {alertMsg && (
+                <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                  <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-6 text-center">
+                    <i className="fa-solid fa-triangle-exclamation text-orange-500 text-[32px] mx-auto mb-4"></i>
+                    <p className="text-slate-800 mb-6">{alertMsg}</p>
+                    <button onClick={() => setAlertMsg('')} className="bg-blue-600 text-white px-4 py-2 rounded-lg w-full font-medium">Tutup</button>
+                  </div>
+                </div>
+              )}
+
+              <nav className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center sticky top-0 z-20">
+                <div className="flex items-center gap-3 text-blue-700">
+                  <i className="fa-solid fa-desktop text-[28px]"></i>
+                  <span className="text-xl font-bold text-slate-800">CBT<span className="text-blue-600">Pro</span></span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right hidden sm:block">
+                    <p className="text-sm font-medium text-slate-800">{namaSiswa}</p>
+                    <p className="text-xs text-slate-500">Siswa Aktif</p>
+                  </div>
+                  <button 
+                    onClick={() => setRole(null)}
+                    className="p-2 w-10 h-10 flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
+                    title="Keluar"
+                  >
+                    <i className="fa-solid fa-right-from-bracket text-[20px]"></i>
+                  </button>
+                </div>
+              </nav>
+
+              <main className="flex-1 max-w-5xl w-full mx-auto p-6 md:p-8">
+                <div className="mb-8">
+                  <h2 className="text-2xl font-bold text-slate-800 mb-2">Daftar Ujian Tersedia</h2>
+                  <p className="text-slate-600">Pilih mata pelajaran yang akan diujikan hari ini. Pastikan koneksi internet Anda stabil.</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {exams.map((ujian) => (
+                    <div key={ujian.id} className="bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md hover:border-blue-300 transition-all overflow-hidden flex flex-col">
+                      <div className="h-2 w-full bg-blue-500"></div>
+                      <div className="p-6 flex-1 flex flex-col">
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="bg-blue-50 text-blue-600 w-12 h-12 flex items-center justify-center rounded-lg">
+                            <i className="fa-solid fa-file-lines text-[24px]"></i>
+                          </div>
+                          <span className="bg-slate-100 text-slate-600 text-xs font-semibold px-2.5 py-1 rounded-full">
+                            {ujian.kelas}
+                          </span>
+                        </div>
+                        
+                        <h3 className="text-lg font-bold text-slate-800 mb-1 line-clamp-2">{ujian.mataPelajaran}</h3>
+                        <p className="text-sm text-slate-500 mb-4 flex-1">Durasi: {ujian.waktu}</p>
+                        
+                        {!ujian.linkGForm && (
+                          <div className="mb-4">
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Paste Link GForm (Khusus Demo):</label>
+                            <input 
+                              type="url" 
+                              placeholder="https://docs.google.com/forms/d/e/.../viewform"
+                              value={customLink}
+                              onChange={(e) => setCustomLink(e.target.value)}
+                              className="w-full text-sm px-3 py-2 rounded-md border border-slate-300 focus:ring-1 focus:ring-blue-500 outline-none"
+                            />
+                          </div>
+                        )}
+
+                        <button 
+                          onClick={() => mulaiUjian(ujian)}
+                          className="w-full mt-auto bg-slate-900 hover:bg-slate-800 text-white font-medium py-2.5 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                        >
+                          <i className="fa-solid fa-expand text-[16px]"></i> Mulai Ujian
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-12 bg-red-50 rounded-xl p-6 border border-red-200">
+                  <h4 className="font-bold text-red-700 flex items-center gap-2 mb-3">
+                    <i className="fa-solid fa-triangle-exclamation text-[18px]"></i> PERATURAN KETAT UJIAN
+                  </h4>
+                  <ul className="text-sm text-red-900 space-y-2 list-disc list-inside">
+                    <li>Saat tombol <strong>Mulai Ujian</strong> ditekan, aplikasi akan masuk ke mode layar penuh.</li>
+                    <li><strong>DILARANG</strong> membuka tab baru, mengecilkan browser (minimize), atau membuka aplikasi lain.</li>
+                    <li><strong>DILARANG</strong> melakukan *Screenshot* (Tangkapan Layar).</li>
+                    <li>Pelanggaran terhadap aturan di atas akan mengakibatkan Anda <strong>LANGSUNG DIDISKUALIFIKASI</strong> dan dikeluarkan dari ujian.</li>
+                  </ul>
+                </div>
+              </main>
+
+              {/* Footer Dashboard */}
+              <footer className="w-full text-center py-4 text-slate-500 text-sm mt-auto">
+                Design by Wiyanto Abu Hanif
+              </footer>
+            </div>
+          );
+        }
+
+        // Render aplikasi ke root
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
